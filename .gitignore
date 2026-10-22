@@ -218,3 +218,41 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ===== Spécifique au projet video_ocr =====
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Certificats générés localement (scripts/install.ps1 -UseWindowsCertStore)
+.certs/
+
+# Données lourdes ou régénérables
+data/input/
+data/instagram/
+data/output*/
+data/perf/
+data/preview/
+data/logs/
+# vidéos synthétiques, régénérées par video_ocr.synthetic et par les tests
+data/test_videos/
+
+# Vidéos, audio et images de travail, où qu'ils soient
+*.mp4
+*.mov
+*.mkv
+*.m4v
+*.webm
+*.avi
+*.m4a
+*.wav
+*.partial.mp4
+
+# Modèles et caches (stockés dans %LOCALAPPDATA%\video_ocr, jamais dans le dépôt)
+*.gguf
+*.onnx
+*.safetensors
+*.bin
+*.sqlite

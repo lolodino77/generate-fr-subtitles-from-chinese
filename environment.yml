@@ -1,0 +1,16 @@
+# Environnement Conda isolé de l'application (configuration testée).
+# Création :                      conda env create -f environment.yml
+# Mise à jour non destructive :   conda env update -n video_ocr -f environment.yml   (sans --prune)
+# Version minimale (sans PyTorch) : retirer la ligne requirements-optional.txt ci-dessous.
+name: video_ocr
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - ffmpeg=9.0.2          # FFmpeg installé DANS l'environnement (aucune installation système)
+  - pip
+  - pip:
+      - -r requirements.txt
+      - -r requirements-optional.txt
+      - -e .

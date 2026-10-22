@@ -1,0 +1,8 @@
+Tu reprends le projet video_ocr (dossier courant). Lis d'abord INSTALL.md puis HANDOFF.md en entier : ils contiennent toute la procédure.
+
+Ta mission : installer l'environnement à l'identique du PC de développement en suivant INSTALL.md, avec les fichiers de verrouillage prévus (script d'installation fourni, environment-lock.yml, requirements-lock.txt), et non la version minimale. Puis valider l'installation comme décrit dans le document et reprendre les points ouverts de HANDOFF.md.
+
+Règles :
+- L'environnement Conda doit s'appeler exactement video_ocr. Ne supprime, ne recrée ni ne modifie aucun environnement existant sans mon accord.
+- Ne prétends jamais qu'une étape a réussi sans l'avoir réellement exécutée.
+- Si quelque chose bloque, diagnostique et explique-moi avant de contourner.

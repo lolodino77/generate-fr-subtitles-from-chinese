@@ -1,0 +1,25 @@
+# Dépendances principales de video_ocr (versions validées : Windows 11, Python 3.11, CPU).
+# Installation (environnement conda video_ocr activé) : python -m pip install -r requirements.txt
+# Roues précompilées CPU de llama-cpp-python (évite toute compilation C++ sous Windows) :
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+--only-binary=llama-cpp-python
+
+# Vidéo / image
+numpy==2.3.5
+opencv-python-headless==5.0.0.93
+pillow==13.0.0
+PyYAML==6.0.2
+
+# OCR : RapidOCR + modèles PP-OCRv6 (inclus dans le paquet, aucun téléchargement)
+rapidocr==3.10.0
+onnxruntime==1.31.0
+opencc-python-reimplemented==0.1.7
+
+# Traduction par défaut : LLM local Qwen3 (GGUF) exécuté par llama.cpp
+llama-cpp-python==0.3.36
+huggingface_hub==2.2.0
+
+# Interface et tests
+streamlit==1.66.1
+psutil==7.2.2  # mesures de performance (scripts/measure_run.py)
+pytest==9.1.1

@@ -1,0 +1,59 @@
+# Configuration par défaut de video_ocr (toutes les clés sont facultatives).
+# Les valeurs absentes reprennent les défauts définis dans src/video_ocr/config.py.
+
+sampling:
+  ocr_interval_s: 0.5        # une image analysée toutes les 0,5 s (0,25 à 2 s)
+  dense_fps: 8               # images décodées/s pour affiner les débuts/fins (précision ≈ 1/(2×dense_fps))
+  refine_boundaries: true
+  skip_unchanged: true
+  unchanged_threshold: 4.0
+  max_ocr_width: 720         # les Reels 1080p sont réduits à 720 px de large pour l'OCR
+
+ocr:
+  engine: rapidocr           # rapidocr (défaut) | paddleocr (optionnel)
+  rapid_ocr_version: PP-OCRv6
+  rapid_model_type: small
+  min_score: 0.5
+  min_cjk_ratio: 0.5
+  roi: null                  # ex. [0.0, 0.05, 1.0, 0.45] pour limiter l'OCR au haut de l'image
+  auto_roi: true             # sans ROI : repère la zone des sous-titres puis n'analyse que cette bande
+  remove_static_text: true
+  static_presence_ratio: 0.85
+  uncertain_score: 0.80
+  zone_tolerance: 0.18
+  center_tolerance: 0.15     # sous-titres centrés : écarte enseignes/menus filmés (0 = désactivé)
+  line_height_range: [0.6, 1.6]
+  block_score_drop: 0.3       # écarte du bloc les lignes « chinoises » peu sûres (thaï mal lu)
+
+segments:
+  similarity_threshold: 0.72
+  max_gap_s: 0.75
+  min_duration_s: 0.4
+  merge_glitch_max_obs: 1
+
+translation:
+  engine: llm                # llm (défaut, Qwen3-4B local) | nllb | argos | none
+  llm_repo: Qwen/Qwen3-4B-GGUF
+  llm_file: Qwen3-4B-Q4_K_M.gguf
+  llm_context_segments: 2    # sous-titres précédents fournis au LLM comme contexte
+  nllb_model: facebook/nllb-200-distilled-600M
+  beam_size: 4
+  normalize_to: simplified
+
+render:
+  strategy: inline           # inline = stratégie A (dans l'image) | band = stratégie B (bande ajoutée)
+  font_path: segoeuib.ttf     # nom de fichier : cherché dans fonts/ du projet puis dans les polices du système
+  font_size_ratio: 0.042
+  text_color: "#FFFFFF"
+  outline_color: "#000000"
+  outline_width_ratio: 0.08
+  background_color: "#000000"
+  background_opacity: 0.55
+  margin_ratio: 0.04
+  gap_ratio: 0.012
+  line_spacing: 1.15
+  max_lines: 3
+  position: below            # below | above | bottom
+  band_height_ratio: 0.16
+  crf: 20
+  preset: veryfast           # x264 : veryfast (rapide) … medium (fichiers plus petits, ≈2-3× plus lent)

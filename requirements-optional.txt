@@ -1,0 +1,15 @@
+# Moteurs de traduction alternatifs (optionnels, plus rapides mais de qualité inférieure sur nos tests).
+# Ils dépendent de PyTorch (CPU, ~200 Mo de roue, ~1 Go installé).
+# Installation : python -m pip install -r requirements-optional.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# NLLB-200 (Meta, poids CC-BY-NC 4.0) via CTranslate2 int8 ; torch sert à la conversion initiale
+ctranslate2==4.8.3
+transformers==5.20.2
+sentencepiece==0.2.2
+tokenizers==0.23.3
+torch==2.14.1+cpu
+
+# Argos Translate (MIT ; modèles OPUS CC-BY 4.0), pivot zh -> en -> fr
+argostranslate==1.11.0
+minisbd==0.9.5
