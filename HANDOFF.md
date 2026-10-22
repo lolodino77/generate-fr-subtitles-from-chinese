@@ -3,6 +3,21 @@
 Rédigé le 2026-10-22 vers 18 h, au moment d'une pause demandée par l'utilisateur.
 Ce document se suffit à lui-même : il ne suppose aucun accès à la conversation d'origine.
 
+**Mis à jour le 2026-10-22 (soir) sur le 2ᵉ PC** : installation refaite à l'identique, lot des 10 vidéos exécuté et vérifié, critère « sans sous-titres » ajouté. **Lire d'abord le §0 ci-dessous.**
+
+---
+
+## 0. À lire en premier (état réel à la fin de la session du 2ᵉ PC)
+
+1. **`data/` n'est pas dans Git** (`.gitignore`). Les 10 vidéos (`data/instagram/`, 237 Mo) et les résultats (`data/output_instagram/`, dont les 10 `*_bilingue.mp4`) ne passent que par OneDrive ou par copie manuelle. Sans eux, l'autre PC ne peut pas reproduire le lot.
+2. **Les modèles ne passent pas par Git non plus** : `%LOCALAPPDATA%\video_ocr\models` (≈ 8 Go). À retélécharger (`download_models.py --all`) ou à copier.
+3. **Environnement** : `video_ocr` existe sur ce PC (créé par `install.ps1 -UseWindowsCertStore`). Versions vérifiées : Python 3.11.17, FFmpeg 9.0.2, `pip check` propre, `video_ocr check` tout OK, **48 tests réussis sur 48** (4 min 41 s).
+4. **Piège rencontré à l'installation** (antivirus qui inspecte le HTTPS) : `install.ps1 -UseWindowsCertStore` crée l'environnement, mais le bundle de certificats **n'atteint pas** le téléchargement des modèles Hugging Face, qui échoue en `CERTIFICATE_VERIFY_FAILED` alors que le script affiche « Installation terminée ». Contournement qui a fonctionné, pour la session seulement : définir `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` et `PIP_CERT` vers `.certs\ca_bundle.pem`, puis lancer `python scripts\download_models.py --all` directement. Lancer ensuite `python -m video_ocr check` : il doit être entièrement vert.
+5. `python scripts\export_lock.py` échoue hors du shell Conda (il ne trouve pas `conda`). Les verrous du dépôt n'ont pas été régénérés ; `pip freeze` a été comparé à la main au verrou pip (identique).
+6. **Variable utile** : `HF_HUB_OFFLINE=1` évite des attentes réseau quand les modèles sont déjà en cache.
+
+---
+
 ---
 
 ## 1. Objectif (rappel)
@@ -24,13 +39,13 @@ Contrainte Conda : ne supprimer ni recréer aucun environnement existant sans au
 | Élément | État |
 |---|---|
 | Application complète (pipeline, CLI, interface Streamlit, scripts, README) | ✅ faite |
-| Tests automatisés (synthétiques) | ✅ 41/41 au dernier passage complet. ⚠️ Le code a changé depuis (§6) : relancer `pytest`. |
+| Tests automatisés | ✅ **48/48** sur le 2ᵉ PC, code final (45 + 3 tests « sans sous-titres ») |
 | Reproductibilité de l'environnement (`environment.yml`) | ✅ vérifiée (40/41, l'échec restant est attendu) |
 | Téléchargement des 10 Reels | ✅ dans `data/instagram/` (237 Mo, yt-dlp, autorisé par l'utilisateur) |
-| Traitement des 10 vraies vidéos | ⏳ **EN COURS DE MISE AU POINT** : 1 vidéo terminée (avec l'avant-dernière version du code), lot arrêté volontairement (§5) |
-| `TEST_REPORT.md` | ⚠️ **à mettre à jour** : sa section 6 indique encore « Instagram non exécuté » et ne contient pas les résultats réels |
+| Traitement des 10 vraies vidéos | ✅ **fait** (lot de 6 304 s) ; `verify` 10/10 OK ; 7 vidéos bilingues + 3 vlogs sans sous-titres (§6) |
+| `TEST_REPORT.md` | ✅ section 6 réécrite avec les résultats réels |
 
-Aucun processus ne tourne : le lot a été arrêté proprement.
+Aucun processus ne tourne.
 
 ## 3. Mise en place sur un nouvel ordinateur
 
@@ -91,6 +106,30 @@ Problèmes trouvés en inspectant les images exportées, **tous corrigés dans l
 Résultat partiel validé sur `DeqaVjljIVb` (avant les correctifs 5 et 7) : 25 segments, 25 traduits ; `verify` tout vert (durée, fps, résolution, audio identique au MD5, source inchangée, SRT valides) ; traductions correctes (厚 → épaisseur, 硬 → dur, 开 → ouvrir…). Défauts visibles alors : français sur la dernière ligne thaïe (corrigé par le point 5, **non encore revérifié en vidéo**) ; 穷 lu « 究 » et 美 manqué (limites de l'OCR sur une police stylisée).
 
 ## 6. Blocages et points ouverts — À FAIRE ENSUITE
+
+**État des points ci-dessous (2026-10-22, soir) :**
+
+| # | Point | État |
+|---|---|---|
+| 1 | Vidéos sans sous-titres | ✅ traité : `looks_without_subtitles` (`segments/grouping.py`, seuils `segments.no_subtitle_*`, interrupteur `drop_when_no_subtitles`). Seuils calibrés sur ces 10 vidéos seulement. |
+| 2 | Tests | ✅ 48/48 |
+| 3 | Lot complet | ✅ fait, 423 s de calcul par minute de vidéo, pic 5,9 Go |
+| 4 | Inspection visuelle | ✅ planches `verification_frames.png` regardées pour les 10 vidéos ; **lecture continue des MP4 non faite** |
+| 5 | `TEST_REPORT.md` / README | ✅ mis à jour |
+| 6 | Petits points | 🔸 voir ci-dessous |
+
+**Reste à faire (défauts consignés dans `TEST_REPORT.md` §6.4, non corrigés) :**
+
+- `DermDTjgqrz` : sous-titre 烫到 (≈ 4 s) manqué. Il est à ≈ 75 % de la hauteur, la zone dominante à 14 % ; `auto_roi` limite l'OCR à cette bande. Piste : élargir ou fusionner plusieurs bandes dans `detect_subtitle_band`, ou tester `--roi 0 0 1 1` pour mesurer le coût.
+- `DeyYW7qDQiZ` : segment « 口 » (0,27 s) traduit « bouche » alors qu'aucun chinois n'est visible ; signalé `short`. Piste : écarter les segments d'un seul caractère très brefs entre deux sous-titres.
+- Traduction : mots anglais dans le mode dictionnaire (鱼胶 → « gelatin. », 排骨 → « os »), termes de parenté (儿媳妇 → « fille de loi »).
+- Le coût d'OCR des vlogs (≈ 78 % du temps d'OCR du lot) n'est pas réduit : la détection « sans sous-titres » se fait après l'OCR.
+- Non vérifié : l'interface Streamlit n'a pas été relancée sur ce PC (`scripts\launch.ps1`).
+- À décider avec l'utilisateur : le cahier des charges parle de chinois **traditionnel**, les vidéos réelles du compte sont en chinois **simplifié**.
+
+**Incident à connaître** : `Deql7rCjNsx` avait échoué au rendu (`Permission denied` sur un `.partial.mp4` datant de l'ancien PC). Cause exacte non établie ; une reprise sans `--force` a suffi. `data/output_instagram/batch_summary_run1.json` et `batch_report_run1.md` conservent le résumé du lot d'origine (le résumé courant a été écrasé par la reprise).
+
+**Ancien texte du §6, conservé pour mémoire (points 1 à 6 d'origine) :**
 
 1. **Découverte importante, pas encore traitée** : d'après les bandes d'images, **3 vidéos sur 10 n'ont PAS de sous-titres chinois incrustés**. Ce sont des vlogs avec seulement des enseignes et menus chinois filmés, plus un titre thaï : `Deql7rCjNsx`, `Devm500DwjZ`, `DetCsEFCqkB`.
    - Le comportement correct est « aucun sous-titre détecté », avec l'avertissement dans le rapport. Or `detect_subtitle_band` renvoie l'image entière pour 2 d'entre elles, et des enseignes risquent encore d'être retenues.

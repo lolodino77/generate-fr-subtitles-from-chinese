@@ -21,7 +21,7 @@ from video_ocr.ocr.text_utils import detect_script
 from video_ocr.ocr.video_ocr import Cancelled, run_video_ocr
 from video_ocr.pipeline.state import STEPS, VideoState, file_fingerprint, step_hashes, to_portable
 from video_ocr.rendering.video_render import render_bilingual_video
-from video_ocr.segments.grouping import build_segments
+from video_ocr.segments.grouping import build_segments, looks_without_subtitles
 from video_ocr.subtitles.srt import write_srt
 from video_ocr.translation.cache import TranslationCache
 from video_ocr.translation.engines import TranslationEngine, create_engine as create_mt_engine
@@ -205,11 +205,19 @@ def process_video(
             elif step == "segments":
                 analysis = analyse_observations(observations, info.height, cfg.ocr, info.width)
                 segments = build_segments(observations, info.duration, cfg)
+                no_subtitles = looks_without_subtitles(segments, cfg)
+                if no_subtitles:
+                    msg = (f"Aucun sous-titre probable : {len(segments)} textes très brefs et instables "
+                           "(enseignes ou texte de scène), pas de sous-titres incrustés.")
+                    if cfg.segments.drop_when_no_subtitles:
+                        segments = []
+                        msg += " Ils ne sont ni traduits ni incrustés."
+                    state.warnings.append(msg)
                 extra = {
                     "zone_center": analysis.zone_center, "static_texts": analysis.static_texts,
                     "frames_with_subtitle": analysis.frames_with_subtitle, "frames_total": analysis.frames_total,
                 }
-                if not segments:
+                if not segments and not no_subtitles:
                     state.warnings.append("Aucun sous-titre chinois détecté dans la vidéo.")
                 if analysis.static_texts:
                     state.warnings.append("Textes fixes écartés (titre/filigrane) : " + " ; ".join(analysis.static_texts))

@@ -67,6 +67,13 @@ class SegmentConfig:
     max_gap_s: float = 0.75  # trou toléré (OCR manqué) à l'intérieur d'un même segment
     min_duration_s: float = 0.4  # durée minimale d'affichage d'un segment exporté
     merge_glitch_max_obs: int = 1  # segments d'une seule observation très proches d'un voisin -> fusion
+    # Vidéo « sans sous-titres probables » (vlog : seules des enseignes passent à l'image) : au moins
+    # ``no_subtitle_min_segments`` segments, durée médiane < ``no_subtitle_median_s`` (texte de scène qui
+    # défile) et part de segments signalés >= ``no_subtitle_flagged_ratio``.
+    no_subtitle_min_segments: int = 5
+    no_subtitle_median_s: float = 0.8
+    no_subtitle_flagged_ratio: float = 0.6
+    drop_when_no_subtitles: bool = True  # False : garder les segments et seulement avertir
 
 
 @dataclass

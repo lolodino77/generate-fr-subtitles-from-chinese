@@ -32,10 +32,17 @@ class VerifyResult:
         self.ok &= passed
 
 
-def stream_md5(path: Path, selector: str, ffmpeg_path: str = "") -> str:
-    """Empreinte MD5 des paquets d'un flux (copie, sans décodage)."""
-    out = run([find_binary("ffmpeg", ffmpeg_path), "-v", "error", "-i", str(path), "-map", selector, "-c", "copy", "-f", "md5", "-"])
+def stream_md5(path: Path, selector: str, ffmpeg_path: str = "", max_packets: int | None = None) -> str:
+    """Empreinte MD5 des paquets d'un flux (copie, sans décodage), éventuellement des ``max_packets`` premiers."""
+    limit = ["-frames:a", str(max_packets)] if max_packets else []
+    out = run([find_binary("ffmpeg", ffmpeg_path), "-v", "error", "-i", str(path), "-map", selector, *limit, "-c", "copy", "-f", "md5", "-"])
     return out.stdout.decode().strip()
+
+
+def audio_packet_count(path: Path, ffmpeg_path: str = "") -> int:
+    out = run([find_binary("ffprobe", ffmpeg_path), "-v", "error", "-select_streams", "a:0", "-count_packets",
+               "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", str(path)])
+    return int(out.stdout.decode().strip() or 0)
 
 
 def contact_sheet(output: Path, segments: list[Segment], dest: Path, n: int = 6, ffmpeg_path: str = "") -> Path:
@@ -74,7 +81,10 @@ def verify_output_dir(out_dir: Path, ffmpeg_path: str = "") -> VerifyResult:
         return res
     src = from_portable(state.source, out_dir)  # chemin relatif au dossier de résultats
     out = out_dir / f"{stem}_bilingue.mp4"
-    res.check("statut", state.status == "complete", state.status)
+    # « partial » = aucun sous-titre à traiter ; acceptable seulement s'il a été signalé dans le rapport
+    no_subtitles = state.status == "partial" and any(w.startswith("Aucun sous-titre") for w in state.warnings)
+    res.check("statut", state.status == "complete" or no_subtitles,
+              "complete" if state.status == "complete" else f"{state.status} (aucun sous-titre, signalé dans le rapport)" if no_subtitles else state.status)
     if src.exists():
         res.check("source inchangée", file_fingerprint(src) == state.fingerprint, "SHA-256 identique à celui mesuré avant traitement")
     else:
@@ -94,9 +104,20 @@ def verify_output_dir(out_dir: Path, ffmpeg_path: str = "") -> VerifyResult:
     band = payload.get("analysis", {}).get("render", {}).get("band_height", 0)
     res.check("résolution", oi.width == si.width and oi.height == si.height + band, f"source {si.width}×{si.height} / sortie {oi.width}×{oi.height} (bande {band})")
     if si.has_audio:
-        same = stream_md5(src, "0:a:0", ffmpeg_path) == stream_md5(out, "0:a:0", ffmpeg_path)
-        res.check("audio / synchronisation", same or payload["analysis"]["render"]["audio"] == "aac",
-                  "flux audio copié à l'identique (même MD5)" if same else "audio réencodé en AAC")
+        out_md5 = stream_md5(out, "0:a:0", ffmpeg_path)
+        same = stream_md5(src, "0:a:0", ffmpeg_path) == out_md5
+        # Si l'audio source dépasse la vidéo de quelques ms, la copie est coupée à la fin de la vidéo :
+        # le MD5 complet diffère, mais les paquets conservés restent identiques à ceux de la source.
+        n_out = 0 if same else audio_packet_count(out, ffmpeg_path)
+        prefix = not same and n_out > 0 and stream_md5(src, "0:a:0", ffmpeg_path, n_out) == out_md5
+        reencoded = payload["analysis"]["render"]["audio"] == "aac"
+        if same:
+            detail = "flux audio copié à l'identique (même MD5)"
+        elif prefix:
+            detail = f"audio copié sans réencodage ; fin coupée à la durée de la vidéo ({n_out} paquets identiques)"
+        else:
+            detail = "audio réencodé en AAC" if reencoded else "audio différent de la source"
+        res.check("audio / synchronisation", same or prefix or reencoded, detail)
     for lang in ("zh", "fr"):
         srt = out_dir / f"{stem}.{lang}.srt"
         problems = validate_srt(srt.read_text(encoding="utf-8")) if srt.exists() else ["absent"]

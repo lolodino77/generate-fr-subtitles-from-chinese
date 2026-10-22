@@ -244,6 +244,8 @@ Mesures détaillées dans [TEST_REPORT.md](TEST_REPORT.md). Ordres de grandeur s
 - RAM : ≈ 1 Go (OCR) + ≈ 3,5 Go (Qwen3-4B) ; NLLB ≈ 1,5 Go.
 - Disque : modèle Qwen3-4B 2,5 Go ; NLLB (Transformers + CT2) ≈ 3,3 Go ; Argos ≈ 0,4 Go.
 
+Mesure sur 10 Reels réels (893 s au total, 720p/1080p, preset `veryfast`, `auto_roi`) : **≈ 423 s de calcul par minute de vidéo**, dont 86 % d'OCR ; pic de RAM 5,9 Go. Les vlogs sans sous-titres sont les plus coûteux (jusqu'à 1 728 s d'OCR pour 174 s de vidéo) car le texte de scène est lu en entier : la détection « sans sous-titres » intervient après l'OCR et ne réduit pas ce coût. Détail dans [TEST_REPORT.md](TEST_REPORT.md) §6.
+
 Effets des réglages : diviser l'intervalle par deux double à peu près le temps d'OCR ; les vidéos 1080p sont réduites à 720 px de large pour l'OCR (`max_ocr_width`), ce qui limite l'effet de la résolution sur l'OCR ; l'export dépend directement de la résolution et du preset x264 (`veryfast` ≈ 2-3× plus rapide, fichiers plus gros).
 
 ---
@@ -253,6 +255,9 @@ Effets des réglages : diviser l'intervalle par deux double à peu près le temp
 - **Horodatages** : estimés au milieu de l'intervalle entre la dernière image sans le texte et la première avec (incertitude enregistrée par segment, ≈ ±0,07 s avec les réglages par défaut). Pas d'exactitude à l'image près garantie.
 - **OCR** : polices très stylisées, texte en mouvement, flou, très petit texte ou contraste faible dégradent la lecture ; les confusions sont signalées (`low_confidence`, `ocr_variants`). Les écritures non chinoises (ex. thaï) ne sont pas reconnues : elles sont seulement évitées lors du placement.
 - **Distinction sous-titres / autres textes** : heuristique (zone verticale dominante, textes fixes écartés). Un panneau chinois visible dans la scène, dans la zone des sous-titres, peut être pris pour un sous-titre.
+- **Vidéos sans sous-titres** : une vidéo dont les « segments » sont très brefs et instables (durée médiane < 0,8 s, ≥ 60 % de segments signalés, au moins 5 segments) est déclarée « aucun sous-titre probable » : avertissement dans le rapport, rien n'est traduit ni incrusté (`segments.drop_when_no_subtitles: false` pour garder les segments). Seuils calibrés sur 10 vidéos d'un seul compte : à revérifier sur d'autres sources.
+- **Position des sous-titres qui change dans une même vidéo** : avec `ocr.auto_roi`, l'OCR est limité à la bande dominante ; un sous-titre à une autre hauteur peut être manqué (constaté sur `DermDTjgqrz`). Utiliser `--roi 0 0 1 1` ou `ocr.auto_roi: false` (plus lent).
+- **Mots courts** : le mode dictionnaire passe par l'anglais et peut laisser un mot anglais (« gelatin. ») ; les termes de parenté et les polices très stylisées sont mal lus ou mal traduits (voir [TEST_REPORT.md](TEST_REPORT.md) §6.4).
 - **Traduction** : les modèles locaux se trompent encore sur les expressions dialectales ou culturelles (p. ex. 潮汕话 « teochew » traduit « cantonais »). Les sous-titres très courts manquent de contexte ; le LLM utilise les sous-titres précédents pour limiter ce problème.
 - **Reprise** : granularité par étape ; une OCR interrompue reprend au début de la vidéo concernée.
 - Le français peut recouvrir une partie de l'image (stratégie A) : utilisez la stratégie B si c'est gênant.
@@ -312,3 +317,5 @@ L'application travaille **uniquement sur des fichiers locaux**. Elle n'intègre 
 - pour vos propres publications : *Paramètres → Votre activité → Télécharger vos informations*.
 
 Déposez ensuite les fichiers dans un dossier et traitez-le comme n'importe quel lot.
+
+Pour les tests du projet, 10 Reels du compte `jinnyteochew_th` ont été téléchargés une fois avec **yt-dlp**, un outil séparé qui n'est pas dans les dépendances de l'application, sans connexion ni cookie, avec l'accord explicite de l'utilisateur du projet. Derrière un antivirus qui inspecte le HTTPS (Avast), il a fallu `--compat-options no-certifi`. Les résultats sont dans [TEST_REPORT.md](TEST_REPORT.md) §6. Ces fichiers ne sont pas versionnés (`data/` est ignoré par Git).

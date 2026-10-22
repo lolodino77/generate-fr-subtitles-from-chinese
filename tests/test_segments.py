@@ -1,8 +1,8 @@
 """Tests unitaires : analyse de zone, regroupement temporel, déduplication et horodatages."""
 from video_ocr.config import AppConfig, OcrConfig
-from video_ocr.models import FrameObservation, TextLine
+from video_ocr.models import FrameObservation, Segment, TextLine
 from video_ocr.ocr.analysis import analyse_observations
-from video_ocr.segments.grouping import build_segments
+from video_ocr.segments.grouping import build_segments, looks_without_subtitles
 
 H = 1280
 SUB_BOX = (100, 180, 620, 240)
@@ -96,3 +96,25 @@ def test_scene_text_rejected_by_centering_and_height() -> None:
         x.lines.append(TextLine("炒米粉", 0.99, (330, 250, 390, 262), True))  # menu centré mais trop petit
     analyse_observations(o, H, OcrConfig(), width=720)
     assert all(x.subtitle_text == "要做工" for x in o)
+
+
+def _seg(i: int, start: float, dur: float, flags: list[str]) -> Segment:
+    return Segment(index=i, start=start, end=start + dur, text_raw="大勝餅", flags=flags)
+
+
+def test_scene_text_video_is_detected_as_without_subtitles() -> None:
+    # enseignes qui défilent : segments au minimum de durée, presque tous signalés
+    segs = [_seg(i, i * 3.0, 0.4, ["short", "single_observation"]) for i in range(8)]
+    assert looks_without_subtitles(segs, AppConfig())
+
+
+def test_real_subtitles_are_not_flagged_as_without_subtitles() -> None:
+    segs = [_seg(i, i * 3.0, 2.5, ["ocr_variants"] if i == 0 else []) for i in range(8)]
+    assert not looks_without_subtitles(segs, AppConfig())
+    # vidéo de vocabulaire aux mots brefs mais stables : durée médiane 1,4 s, moitié seulement signalée
+    vocab = [_seg(i, i * 3.0, 1.4, ["low_confidence"] if i % 2 else []) for i in range(10)]
+    assert not looks_without_subtitles(vocab, AppConfig())
+
+
+def test_too_few_segments_are_never_judged() -> None:
+    assert not looks_without_subtitles([_seg(0, 0.0, 0.4, ["short"]), _seg(1, 5.0, 0.4, ["short"])], AppConfig())

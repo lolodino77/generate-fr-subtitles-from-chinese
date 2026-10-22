@@ -120,6 +120,21 @@ def build_segments(observations: list[FrameObservation], duration: float, cfg: A
     return segments
 
 
+def looks_without_subtitles(segments: list[Segment], cfg: AppConfig) -> bool:
+    """Vrai si les « segments » ressemblent à du texte de scène (enseignes, menus) et non à des sous-titres.
+
+    Un sous-titre reste lisible plusieurs secondes ; du texte filmé défile en une fraction de seconde,
+    donne des segments très courts, à une seule observation ou à lecture instable.
+    """
+    sc = cfg.segments
+    if len(segments) < sc.no_subtitle_min_segments:
+        return False
+    durations = sorted(s.duration for s in segments)
+    median = (durations[(len(durations) - 1) // 2] + durations[len(durations) // 2]) / 2
+    flagged = sum(1 for s in segments if s.flags) / len(segments)
+    return median < sc.no_subtitle_median_s and flagged >= sc.no_subtitle_flagged_ratio
+
+
 def _fix_timing(segments: list[Segment], duration: float, min_duration: float) -> None:
     """Supprime les chevauchements et allonge les segments trop courts quand la place le permet."""
     for i, seg in enumerate(segments):
