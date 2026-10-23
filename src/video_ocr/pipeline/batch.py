@@ -66,6 +66,7 @@ def run_batch(
             batch.cancelled = True
             break
         write_batch_report(batch, out_root)
+    engines.close()  # ferme le navigateur du moteur de traduction en ligne, le cas échéant
     batch.finished = datetime.now().isoformat(timespec="seconds")
     batch.seconds = round(time.perf_counter() - t0, 1)
     write_batch_report(batch, out_root)

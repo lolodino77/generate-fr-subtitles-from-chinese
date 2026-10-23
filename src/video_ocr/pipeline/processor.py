@@ -18,7 +18,7 @@ from video_ocr.models import FrameObservation, Segment, TextLine, VideoInfo
 from video_ocr.ocr.analysis import analyse_observations
 from video_ocr.ocr.engines import OcrEngine, create_engine as create_ocr_engine
 from video_ocr.ocr.text_utils import detect_script
-from video_ocr.ocr.video_ocr import Cancelled, run_video_ocr
+from video_ocr.ocr.video_ocr import Cancelled, NoSubtitles, run_video_ocr
 from video_ocr.pipeline.state import STEPS, VideoState, file_fingerprint, step_hashes, to_portable
 from video_ocr.rendering.video_render import render_bilingual_video
 from video_ocr.segments.grouping import build_segments, looks_without_subtitles
@@ -106,6 +106,15 @@ class Engines:
                 self._mt_loaded = True
             return self._mt
 
+    def close(self) -> None:
+        """Ferme les ressources externes (navigateur du moteur en ligne). Le moteur sera recréé au besoin :
+        la session Playwright est liée au thread qui l'a créée, donc jamais partagée entre deux lots."""
+        with self._lock:
+            closer = getattr(self._mt, "close", None)
+            if closer is not None:
+                closer()
+                self._mt, self._mt_loaded = None, False
+
     @property
     def cache(self) -> TranslationCache:
         with self._lock:
@@ -167,8 +176,18 @@ def process_video(
             for step in STEPS[STEPS.index(redo_from):]:
                 state.steps.pop(step, None)
         start_step = state.first_invalid_step(hashes)
+        if start_step is None and state.no_subtitles and not paths.video.exists() and not cfg.ocr.skip_when_no_subtitles:
+            start_step = "ocr"  # l'écartement n'entre pas dans l'empreinte : désactivé depuis, la vidéo doit être traitée
+        if start_step is None and state.no_subtitles and not paths.video.exists():  # déjà écartée d'après la sonde
+            result.status, result.skipped, result.warnings = "partial", True, list(state.warnings)
+            if progress:
+                progress(1.0, "Aucun sous-titre probable (déjà constaté, vidéo non traitée)")
+            return result
         if start_step is None and paths.video.exists():
-            result.status, result.skipped = "complete", True
+            if state.no_subtitles:  # état incohérent (ancien écartement, vidéo produite depuis) : on le corrige
+                state.no_subtitles, state.probe = False, {}
+                state.save(paths.state)
+            result.status, result.skipped = ("partial" if state.status == "partial" else "complete"), True
             result.video = to_portable(paths.video, out_base)
             segs = [Segment.from_dict(d) for d in json.loads(paths.segments.read_text(encoding="utf-8"))["segments"]]
             _fill_counts(result, segs)
@@ -180,6 +199,7 @@ def process_video(
         for step in STEPS[start_idx:]:
             state.steps.pop(step, None)
         state.status, state.error, state.config = "running", "", cfg.to_dict()
+        state.no_subtitles, state.probe = False, {}  # la vidéo est (re)traitée : un ancien écartement ne vaut plus
         state.warnings = [] if start_idx == 0 else state.warnings
         state.save(paths.state)
         for i, step in enumerate(STEPS[:start_idx]):
@@ -214,7 +234,7 @@ def process_video(
                         msg += " Ils ne sont ni traduits ni incrustés."
                     state.warnings.append(msg)
                 extra = {
-                    "zone_center": analysis.zone_center, "static_texts": analysis.static_texts,
+                    "zone_center": analysis.zone_center, "zones": analysis.zones, "static_texts": analysis.static_texts,
                     "frames_with_subtitle": analysis.frames_with_subtitle, "frames_total": analysis.frames_total,
                 }
                 if not segments and not no_subtitles:
@@ -227,6 +247,12 @@ def process_video(
                 extra["translation_stats"] = mt_stats.__dict__
                 if mt_stats.failed:
                     state.warnings.append(f"{mt_stats.failed} segment(s) sans traduction.")
+                for w in mt_stats.warnings:
+                    state.warnings.append(f"Traduction en ligne : {w}")
+                if mt_stats.sources.get("local"):
+                    state.warnings.append(
+                        f"{mt_stats.sources['local']} traduction(s) faite(s) par le moteur local de secours (le service en ligne a échoué)."
+                    )
                 _save_segments(paths, info, segments, extra, cfg)
             elif step == "render":
                 if not any(s.translation for s in segments):
@@ -258,6 +284,22 @@ def process_video(
         result.status = state.status
         result.video = to_portable(paths.video, out_base)
         _fill_counts(result, segments)
+    except NoSubtitles as exc:
+        # Sonde : pas de sous-titres incrustés. Ni OCR complète, ni traduction, ni rendu d'une vidéo identique à la source.
+        ind = exc.probe.indicators
+        msg = (f"Aucun sous-titre probable (sonde de {ind.frames} images) : {exc.probe.no_subtitles_reason}. "
+               "Vidéo non traitée (désactivable : ocr.skip_when_no_subtitles: false).")
+        state.warnings, state.no_subtitles, state.probe = [msg], True, ind.to_dict()
+        state.steps, state.status, state.error = dict(hashes), "partial", ""
+        state.timings["sonde"] = round(time.perf_counter() - t0, 2)
+        state.save(paths.state)
+        write_report_md(paths.file(".rapport.md"), video.name, {
+            "Vidéo source": f"{video.name} (inchangée)", "Durée": f"{info.duration:.2f} s, {info.width}×{info.height}",
+            "Décision": "aucun sous-titre chinois incrusté probable : vidéo non traitée",
+            "Indicateurs de la sonde": json.dumps(state.probe, ensure_ascii=False),
+        }, [], state.warnings)
+        result.status, result.warnings, result.timings = "partial", list(state.warnings), dict(state.timings)
+        return result
     except Cancelled:
         if state is not None:
             state.status = "interrupted"
@@ -311,7 +353,7 @@ def _export(paths: OutputPaths, video: Path, info: VideoInfo, segments: list[Seg
         "Traductions douteuses": mt.get("suspect", 0),
         "Segments signalés": sum(1 for s in segments if s.flags),
         "Écriture chinoise détectée": ", ".join(sorted(scripts)) or "—",
-        "Zone des sous-titres (centre vertical)": f"{extra['zone_center']:.0%}" if extra.get("zone_center") is not None else "—",
+        "Zones des sous-titres (centre vertical)": ", ".join(f"{z:.0%}" for z in extra.get("zones") or ([extra['zone_center']] if extra.get('zone_center') is not None else [])) or "—",
         "Images avec sous-titre / analysées": f"{extra.get('frames_with_subtitle', 0)}/{extra.get('frames_total', 0)}",
         "Placement du français": ", ".join(sorted({p['mode'] for p in extra.get('render', {}).get('placements', {}).values()})) or "—",
         "Durées des étapes (s)": json.dumps(state.timings, ensure_ascii=False),

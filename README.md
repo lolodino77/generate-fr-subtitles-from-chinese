@@ -49,12 +49,23 @@ RapidOCR exécute les mêmes modèles PP-OCR (famille PaddleOCR) via ONNX Runtim
 
 | Option | Paire | Qualité observée | Vitesse CPU | Licence des poids |
 |---|---|---|---|---|
-| **Qwen3-4B Q4_K_M via llama.cpp** (défaut, `llm`) | zh → fr direct, avec contexte des sous-titres précédents | la meilleure : phrases idiomatiques correctes (« 钱不是万能的，但没有钱是万万不能的 » → « L'argent n'est pas tout, mais sans argent, rien n'est possible. ») | ≈ 5-13 s / phrase | Apache-2.0 |
+| **LLM en ligne gratuit via Chrome** (défaut, `browser` : Gemini, puis ChatGPT en secours) | zh → fr direct, toute la vidéo en une requête (contexte complet) | la meilleure observée : « 排骨 » → « côtes de porc », « 儿媳妇 » → « belle-fille », « 口渴 » → « J'ai soif » ; mesuré sur Gemini en mode invité : 8 sous-titres en 18,7 s | une requête par série de 40 sous-titres | sans objet (service en ligne ; **les textes sont envoyés au service**) |
+| Qwen3-4B Q4_K_M via llama.cpp (`llm`, local, secours) | zh → fr direct, avec contexte des sous-titres précédents | la meilleure : phrases idiomatiques correctes (« 钱不是万能的，但没有钱是万万不能的 » → « L'argent n'est pas tout, mais sans argent, rien n'est possible. ») | ≈ 5-13 s / phrase | Apache-2.0 |
 | NLLB-200 distillé 600M via CTranslate2 int8 (`nllb`) | zh → fr direct | correcte sur les phrases simples, contresens fréquents sur les tournures (« 慢慢来 » → « Allez vite ») | ≈ 0,6 s / phrase | **CC-BY-NC 4.0 (non commercial)** |
 | Argos Translate (`argos`) | zh → en → fr (pivot) | moyenne, répétitions, mots inventés | ≈ 1 s / phrase | MIT + modèles OPUS CC-BY 4.0 |
 | M2M100 418M | zh → fr | inférieure à NLLB | ≈ 4 s / phrase | MIT — non retenu |
 
-Le LLM est plus lent mais nettement plus fidèle ; NLLB reste disponible comme option rapide. Aucun de ces moteurs n'est parfait : les traductions douteuses sont signalées dans le rapport.
+Le LLM en ligne est nettement plus fidèle que les modèles locaux ; Qwen3-4B local sert de secours hors ligne, NLLB reste disponible comme option rapide. Aucun de ces moteurs n'est parfait : les traductions douteuses sont signalées dans le rapport.
+
+#### Traduction en ligne via navigateur (moteur par défaut)
+
+Les API gratuites (clé Gemini, etc.) sont souvent saturées ou très limitées ; l'application pilote donc **un vrai Chrome** avec Playwright, comme le fait le projet `auto-wordpress-translator` : elle colle un prompt dans la zone de saisie de Gemini (ou ChatGPT), l'envoie et lit la réponse dans le bloc de code, terminée par une ligne `###FIN###`. Aucune clé API, aucun quota d'API.
+
+- **Aucun navigateur à télécharger** : le Chrome (ou Edge) installé est utilisé, avec un **profil dédié** stocké dans `%LOCALAPPDATA%\video_ocr\browser_profile` (hors dépôt et hors OneDrive : il contient des cookies de connexion, ne jamais le versionner).
+- **Connexion, une seule fois** : `python -m video_ocr login` ouvre les sites ; vous vous connectez vous-même (jamais d'identifiants dans l'application). Gemini répond aussi **sans compte** (mode invité) ; ChatGPT exige un compte.
+- **Une requête par série de 40 sous-titres**, avec en contexte les derniers sous-titres déjà traduits ; le glossaire local (`config/glossary.yaml`) reste prioritaire. Une série complète est mise en cache ; une reprise ne renvoie que les séries manquantes.
+- **Repli automatique** : Gemini, puis ChatGPT, puis le modèle local s'il est installé (`translation.browser_fallback`). Les échecs sont écrits dans le rapport (déconnexion, quota, interface modifiée).
+- **À savoir** : une fenêtre Chrome s'ouvre pendant la traduction (ne pas la fermer ni cliquer dedans). Les captchas et connexions ne sont jamais contournés. Les sélecteurs CSS des sites (`SITES` dans `translation/browser_llm.py`) peuvent changer et casser le moteur : il suffit alors de les ajuster. Les conditions d'utilisation des services peuvent restreindre l'automatisation ; usage personnel, textes non confidentiels uniquement.
 
 ### Vidéo
 
@@ -172,7 +183,9 @@ La barre latérale règle : intervalle d'échantillonnage, affinage des bornes, 
 conda activate video_ocr
 python -m video_ocr process data\instagram -o data\sorties   # un dossier entier (chemins relatifs à la racine du projet)
 python -m video_ocr process a.mp4 b.mov --strategy band       # stratégie B
-python -m video_ocr process a.mp4 --engine nllb --interval 0.25
+python -m video_ocr login                                      # une fois : connexion à Gemini / ChatGPT (traduction en ligne)
+python -m video_ocr process a.mp4 --engine nllb --interval 0.25   # moteur local rapide, hors ligne
+python -m video_ocr process a.mp4 --redo-from translation       # refait seulement la traduction (OCR conservée)
 python -m video_ocr process a.mp4 --roi 0 0 1 0.5             # OCR limité à la moitié haute
 python -m video_ocr preview a.mp4 --times 1 3 5                # aperçu des détections OCR (PNG annotés)
 python -m video_ocr check                                     # vérification de l'environnement
@@ -244,7 +257,7 @@ Mesures détaillées dans [TEST_REPORT.md](TEST_REPORT.md). Ordres de grandeur s
 - RAM : ≈ 1 Go (OCR) + ≈ 3,5 Go (Qwen3-4B) ; NLLB ≈ 1,5 Go.
 - Disque : modèle Qwen3-4B 2,5 Go ; NLLB (Transformers + CT2) ≈ 3,3 Go ; Argos ≈ 0,4 Go.
 
-Mesure sur 10 Reels réels (893 s au total, 720p/1080p, preset `veryfast`, `auto_roi`) : **≈ 423 s de calcul par minute de vidéo**, dont 86 % d'OCR ; pic de RAM 5,9 Go. Les vlogs sans sous-titres sont les plus coûteux (jusqu'à 1 728 s d'OCR pour 174 s de vidéo) car le texte de scène est lu en entier : la détection « sans sous-titres » intervient après l'OCR et ne réduit pas ce coût. Détail dans [TEST_REPORT.md](TEST_REPORT.md) §6.
+Mesure sur 10 Reels réels (893 s au total, 720p/1080p, preset `veryfast`, `auto_roi`) : **≈ 423 s de calcul par minute de vidéo**, dont 86 % d'OCR ; pic de RAM 5,9 Go. Les vlogs sans sous-titres étaient les plus coûteux (jusqu'à 1 728 s d'OCR pour 174 s de vidéo) ; depuis la sonde de 20 images, ceux qui sont écartés n'ont plus d'OCR complète (3 vlogs : 291 s au lieu d'environ 1 h), mais ceux qui passent la sonde coûtent toujours cher. Détail dans [TEST_REPORT.md](TEST_REPORT.md) §6.
 
 Effets des réglages : diviser l'intervalle par deux double à peu près le temps d'OCR ; les vidéos 1080p sont réduites à 720 px de large pour l'OCR (`max_ocr_width`), ce qui limite l'effet de la résolution sur l'OCR ; l'export dépend directement de la résolution et du preset x264 (`veryfast` ≈ 2-3× plus rapide, fichiers plus gros).
 
@@ -255,7 +268,11 @@ Effets des réglages : diviser l'intervalle par deux double à peu près le temp
 - **Horodatages** : estimés au milieu de l'intervalle entre la dernière image sans le texte et la première avec (incertitude enregistrée par segment, ≈ ±0,07 s avec les réglages par défaut). Pas d'exactitude à l'image près garantie.
 - **OCR** : polices très stylisées, texte en mouvement, flou, très petit texte ou contraste faible dégradent la lecture ; les confusions sont signalées (`low_confidence`, `ocr_variants`). Les écritures non chinoises (ex. thaï) ne sont pas reconnues : elles sont seulement évitées lors du placement.
 - **Distinction sous-titres / autres textes** : heuristique (zone verticale dominante, textes fixes écartés). Un panneau chinois visible dans la scène, dans la zone des sous-titres, peut être pris pour un sous-titre.
-- **Vidéos sans sous-titres** : une vidéo dont les « segments » sont très brefs et instables (durée médiane < 0,8 s, ≥ 60 % de segments signalés, au moins 5 segments) est déclarée « aucun sous-titre probable » : avertissement dans le rapport, rien n'est traduit ni incrusté (`segments.drop_when_no_subtitles: false` pour garder les segments). Seuils calibrés sur 10 vidéos d'un seul compte : à revérifier sur d'autres sources.
+- **Vidéos sans sous-titres** : deux contrôles peuvent écarter une vidéo, sans rien traduire ni incruster (avertissement dans le rapport, aucune vidéo produite) :
+  1. **Sonde** (avant l'OCR complète) : moins de 15 % des images échantillonnées ont une ligne chinoise « de type sous-titre ». Réglages : `ocr.skip_when_no_subtitles`, `ocr.no_subtitle_clear_ratio`. Revalidée sur 33 vidéos d'un seul compte : aucune vidéo à sous-titres écartée, mais trois vlogs à 15-24 % passent la sonde et ne sont écartés qu'après l'OCR.
+  2. **Après OCR** : segments très brefs et instables (durée médiane < 0,8 s, ≥ 60 % signalés, au moins 5 segments). Ce critère a écarté à tort une vidéo à sous-titres en phrases longues (`DeS37izE5lk`, voir [TEST_REPORT.md](TEST_REPORT.md) §6.6). Désactivable : `segments.drop_when_no_subtitles: false`.
+  Seuils calibrés sur un seul compte Instagram : à revérifier sur d'autres sources.
+- **Reprise après changement de réglages** : les étapes sont réutilisées si leurs réglages n'ont pas changé. Les réglages de la sonde n'invalident rien. Après un changement de structure qui ne modifie pas le résultat, `python scripts\migrate_hashes.py <dossier_de_sortie>` met à jour les empreintes sans rien recalculer (`--dry-run` pour voir d'abord).
 - **Position des sous-titres qui change dans une même vidéo** : avec `ocr.auto_roi`, l'OCR est limité à la bande dominante ; un sous-titre à une autre hauteur peut être manqué (constaté sur `DermDTjgqrz`). Utiliser `--roi 0 0 1 1` ou `ocr.auto_roi: false` (plus lent).
 - **Mots courts** : le mode dictionnaire passe par l'anglais et peut laisser un mot anglais (« gelatin. ») ; les termes de parenté et les polices très stylisées sont mal lus ou mal traduits (voir [TEST_REPORT.md](TEST_REPORT.md) §6.4).
 - **Traduction** : les modèles locaux se trompent encore sur les expressions dialectales ou culturelles (p. ex. 潮汕话 « teochew » traduit « cantonais »). Les sous-titres très courts manquent de contexte ; le LLM utilise les sous-titres précédents pour limiter ce problème.
@@ -276,6 +293,7 @@ Effets des réglages : diviser l'intervalle par deux double à peu près le temp
 | `Modèle LLM … absent` | `python scripts\download_models.py` (Internet requis une fois). |
 | Accents remplacés par des carrés | Choisir une police TrueType complète par son **nom** (`segoeuib.ttf`, `arial.ttf`) : elle est cherchée dans `fonts/` du projet puis dans les polices du système. Pour une police non installée, la déposer dans `fonts/`. |
 | Aucun sous-titre détecté | Vérifier avec « Aperçu OCR » ; restreindre la ROI ; désactiver « Ignorer les textes fixes » si la vidéo ne contient qu'une phrase. |
+| « Aucun sous-titre probable » alors que la vidéo en a | Relancer avec `ocr.skip_when_no_subtitles: false` (traite la vidéo entière) ; le rapport indique quel contrôle a écarté la vidéo. |
 | Traitement très lent | Augmenter l'intervalle (1 s), utiliser `nllb` au lieu de `llm`, fermer les autres applications lourdes. |
 | Fichiers de sortie dans OneDrive | Possible, mais choisissez de préférence un dossier hors OneDrive pour de gros lots. |
 
@@ -301,7 +319,7 @@ src/video_ocr/
   envcheck.py, cli.py
 tests/                 tests unitaires et d'intégration (pytest)
 config/default.yaml    paramètres
-scripts/               install.ps1, launch.ps1, run_tests.ps1, download_models.py
+scripts/               install.ps1, launch.ps1, run_tests.ps1, download_models.py, migrate_hashes.py, probe_samples.py
 ```
 
 Tests : `python -m pytest` (tout), `-m "not slow"` (rapide, sans pipeline complet). Aucun test ne nécessite Internet ; seuls les tests marqués `models` utilisent un modèle de traduction téléchargé.

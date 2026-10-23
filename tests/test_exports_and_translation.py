@@ -137,3 +137,26 @@ def test_portable_paths_and_font_lookup(tmp_path: Path) -> None:
     # Police désignée par son nom, sans chemin propre à la machine
     assert find_font("segoeuib.ttf") is not None and find_font("segoeuib.ttf").exists()
     assert find_font("police_inexistante.ttf") is None
+
+
+def test_glossary_has_priority_over_engine(tmp_path: Path) -> None:
+    from video_ocr.translation.translator import load_glossary
+
+    cfg = AppConfig().translation
+    assert load_glossary(cfg)["儿媳妇"] == "belle-fille (épouse du fils)"
+    segs = [Segment(1, 0, 2, "兒媳婦", "兒媳婦", "儿媳妇"), Segment(2, 2, 4, "謝謝", "謝謝", "谢谢")]
+    eng = FakeTranslator()
+    stats = translate_segments(segs, eng, cfg, cache=None)
+    assert segs[0].translation == "belle-fille (épouse du fils)"  # traditionnel ramené au simplifié
+    assert stats.glossary == 1 and eng.calls == ["谢谢"]  # le moteur ne voit que le reste
+
+
+def test_glossary_matches_first_line_when_second_line_is_noise() -> None:
+    from video_ocr.translation.translator import TranslationStats, apply_glossary
+
+    cfg_t = AppConfig().translation
+    noisy = Segment(1, 0, 2, "大姑\n的m", "大姑 的m", "大姑 的m")  # 2ᵉ ligne = thaï mal lu (1 seul caractère chinois)
+    real_two_lines = Segment(2, 2, 4, "你好吗\n谢谢你们", "你好吗谢谢你们", "你好吗谢谢你们")  # vraies lignes : jamais ignorées
+    stats = TranslationStats()
+    rest = apply_glossary([noisy, real_two_lines], cfg_t, stats)
+    assert noisy.translation == "tante (sœur aînée du père)" and rest == [real_two_lines] and stats.glossary == 1

@@ -17,10 +17,15 @@ ocr:
   min_cjk_ratio: 0.5
   roi: null                  # ex. [0.0, 0.05, 1.0, 0.45] pour limiter l'OCR au haut de l'image
   auto_roi: true             # sans ROI : repère la zone des sous-titres puis n'analyse que cette bande
+  skip_when_no_subtitles: true   # écarte tôt les vidéos sans sous-titres incrustés (vlogs), d'après l'échantillon de 20 images
+  no_subtitle_min_frames: 8      # échantillon minimal pour décider
+  no_subtitle_clear_ratio: 0.15  # < 15 % d'images « type sous-titre » : aucun sous-titre (seul critère de la sonde)
   remove_static_text: true
   static_presence_ratio: 0.85
   uncertain_score: 0.80
   zone_tolerance: 0.18
+  secondary_zone_ratio: 0.15  # sous-titres à plusieurs hauteurs : zones secondaires >= 15 % de la principale
+  max_zones: 3
   center_tolerance: 0.15     # sous-titres centrés : écarte enseignes/menus filmés (0 = désactivé)
   line_height_range: [0.6, 1.6]
   block_score_drop: 0.3       # écarte du bloc les lignes « chinoises » peu sûres (thaï mal lu)
@@ -30,11 +35,22 @@ segments:
   max_gap_s: 0.75
   min_duration_s: 0.4
   merge_glitch_max_obs: 1
+  single_char_min_s: 0.2      # caractère isolé plus bref : artefact écarté
+  recurring_single_char: 3    # même caractère, même endroit, >= 3 segments : objet de la scène écarté
 
 translation:
-  engine: llm                # llm (défaut, Qwen3-4B local) | nllb | argos | none
+  engine: browser            # browser (défaut : Gemini puis ChatGPT dans Chrome) | llm (Qwen3-4B local) | nllb | argos | none
+  browser_sites: [gemini, gpt]   # ordre d'essai ; connexion manuelle une fois : python -m video_ocr login
+  browser_profile: ""        # profil Chrome ; "" = <cache_dir>/browser_profile (hors dépôt : contient des cookies)
+  browser_channel: chrome    # chrome | msedge | "" (Chromium de Playwright, à installer)
+  browser_headless: false    # false : fenêtre visible (connexion, captcha) ; ne pas la fermer pendant le lot
+  browser_chunk_size: 40     # sous-titres par requête
+  browser_timeout_s: 300
+  browser_pause_s: 4.0
+  browser_fallback: llm      # moteur local de secours si le navigateur échoue (none : aucun)
   llm_repo: Qwen/Qwen3-4B-GGUF
   llm_file: Qwen3-4B-Q4_K_M.gguf
+  glossary_path: config/glossary.yaml   # glossaire local prioritaire sur le modèle (termes de parenté…), "" = aucun
   llm_context_segments: 2    # sous-titres précédents fournis au LLM comme contexte
   nllb_model: facebook/nllb-200-distilled-600M
   beam_size: 4

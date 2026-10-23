@@ -4,6 +4,7 @@ Exemples :
     python -m video_ocr process data\\instagram -o data\\sorties
     python -m video_ocr process clip.mp4 --strategy band --interval 0.5
     python -m video_ocr preview clip.mp4 --times 1 3 5 -o apercus
+    python -m video_ocr login          # une seule fois : connexion à Gemini / ChatGPT (traduction en ligne)
     python -m video_ocr check
 """
 from __future__ import annotations
@@ -71,6 +72,27 @@ def cmd_preview(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_login(args: argparse.Namespace) -> int:
+    """Ouvre Chrome (profil dédié) sur les sites de traduction pour une connexion manuelle, une seule fois."""
+    from video_ocr.translation.browser_llm import BrowserSession, TranslationUnavailable, default_profile_dir
+
+    cfg = load_config(args.config)
+    t = cfg.translation
+    profile = default_profile_dir(cfg.cache_dir, t.browser_profile)
+    sites = args.sites or t.browser_sites
+    print(f"Profil du navigateur : {profile}")
+    session = BrowserSession(profile, t.browser_channel, headless=False)
+    try:
+        session.login(sites)
+    except TranslationUnavailable as exc:
+        print(f"Impossible d'ouvrir le navigateur : {exc}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+    print("Session enregistrée dans le profil. Vous pouvez lancer « process ».")
+    return 0
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     from video_ocr.envcheck import run_checks
 
@@ -107,7 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Recalculer à partir de cette étape (l'OCR déjà faite est réutilisée)")
     pr.add_argument("--interval", type=float, help="Intervalle d'OCR en secondes")
     pr.add_argument("--strategy", choices=["inline", "band"])
-    pr.add_argument("--engine", choices=["llm", "nllb", "argos", "none"])
+    pr.add_argument("--engine", choices=["browser", "llm", "nllb", "argos", "none"])
     pr.add_argument("--roi", type=float, nargs=4, metavar=("X0", "Y0", "X1", "Y1"))
     pr.set_defaults(func=cmd_process)
     pv = sub.add_parser("preview", help="Prévisualiser l'OCR sur quelques images")
@@ -119,6 +141,9 @@ def build_parser() -> argparse.ArgumentParser:
     vf = sub.add_parser("verify", help="Vérifier les vidéos exportées d'un dossier de sortie")
     vf.add_argument("output")
     vf.set_defaults(func=cmd_verify)
+    lg = sub.add_parser("login", help="Se connecter une fois à Gemini / ChatGPT dans le navigateur piloté")
+    lg.add_argument("--sites", nargs="+", choices=["gemini", "gpt"], help="Sites à ouvrir (défaut : configuration)")
+    lg.set_defaults(func=cmd_login)
     ck = sub.add_parser("check", help="Vérifier l'environnement (Conda, FFmpeg, modèles)")
     ck.set_defaults(func=cmd_check)
     return p

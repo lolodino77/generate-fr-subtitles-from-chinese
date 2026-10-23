@@ -134,6 +134,21 @@ $env:SSL_CERT_FILE = $env:CONDA_SSL_VERIFY
 python -m yt_dlp --compat-options no-certifi --ffmpeg-location "$env:CONDA_PREFIX\Library\bin" -f "bv*+ba/b" --merge-output-format mp4 -o "data/instagram/%(id)s.%(ext)s" <URL>
 ```
 
+## 4 bis. Traduction en ligne (moteur par défaut) : connexion unique
+
+Le moteur de traduction par défaut pilote **Chrome** (ou Edge) avec Playwright, installé par `requirements-lock.txt` : aucun navigateur supplémentaire à télécharger, et **aucun modèle de traduction local obligatoire** (économie d'environ 8 Go ; le modèle Qwen3-4B n'est qu'un secours facultatif).
+
+```powershell
+conda activate video_ocr
+python -m video_ocr login        # une seule fois : ouvre Gemini et ChatGPT ; connectez-vous vous-même dans Chrome
+python -m video_ocr check        # « Profil du navigateur » doit être OK
+```
+
+- Le profil de connexion est créé dans `%LOCALAPPDATA%\video_ocr\browser_profile` (hors dépôt, hors OneDrive, jamais versionné : il contient des cookies). Il faut donc refaire `login` sur chaque PC.
+- **Gemini fonctionne sans compte** (mode invité) ; ChatGPT exige un compte. Un seul des deux suffit.
+- Si Chrome n'est pas installé : Edge est essayé, puis le Chromium de Playwright (`python -m playwright install chromium`, ≈ 150 Mo).
+- Pour ne **pas** utiliser le réseau : `translation.engine: llm` dans `config/default.yaml`, après `python scripts\download_models.py`.
+
 ## 5. Vérifier que l'installation est identique
 
 ```powershell

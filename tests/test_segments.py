@@ -118,3 +118,24 @@ def test_real_subtitles_are_not_flagged_as_without_subtitles() -> None:
 
 def test_too_few_segments_are_never_judged() -> None:
     assert not looks_without_subtitles([_seg(0, 0.0, 0.4, ["short"]), _seg(1, 5.0, 0.4, ["short"])], AppConfig())
+
+
+def test_subtitles_at_two_heights_are_both_kept() -> None:
+    # Cas réel (DermDTjgqrz) : certaines phrases en bas de l'image, d'autres en haut
+    bottom = (260, 940, 460, 1000)
+    o = timeline([(0, 3, "烫到")], 3, watermark=False, box=bottom)
+    o += [obs(round(3 + x.t, 3), x.lines[0].text if x.lines else None, watermark=False)
+          for x in timeline([(0, 9, "鱼胶")], 9, watermark=False)]
+    analyse_observations(o, H, OcrConfig(), width=720)
+    segs = build_segments(o, 12.0, AppConfig())
+    assert [s.text_raw for s in segs] == ["烫到", "鱼胶"]
+
+
+def test_single_char_scene_object_and_transition_dropped() -> None:
+    # Cas réel (DeyYW7qDQiZ) : un boîtier carré lu « 口 » entre chaque sous-titre, toujours au même endroit
+    spec = [(0, 2, "没钱没关系"), (2, 2.25, "口"), (2.25, 4, "没本事没关系"), (4, 4.25, "口"),
+            (4.25, 6, "没钱可以再找"), (6, 6.25, "口"), (6.25, 8, "没本事可以再学"), (8, 8.1, "丑")]
+    o = analysed(timeline(spec, 9, watermark=False))
+    texts = [s.text_raw for s in build_segments(o, 9.0, AppConfig())]
+    assert "口" not in texts and "丑" not in texts
+    assert texts == ["没钱没关系", "没本事没关系", "没钱可以再找", "没本事可以再学"]

@@ -47,10 +47,23 @@ def run_checks(cfg: AppConfig) -> list[Check]:
             checks.append((f"Module optionnel {mod}", "OK", ""))
         except Exception:  # noqa: BLE001
             checks.append((f"Module optionnel {mod}", "ATTENTION", "non installé (optionnel)"))
+    if cfg.translation.engine == "browser":
+        try:
+            import playwright  # noqa: F401
+
+            checks.append(("Playwright (traduction en ligne)", "OK", ""))
+        except ImportError:
+            checks.append(("Playwright (traduction en ligne)", "ÉCHEC", "python -m pip install playwright"))
+        from video_ocr.translation.browser_llm import default_profile_dir
+
+        profile = default_profile_dir(cfg.cache_dir, cfg.translation.browser_profile)
+        logged = profile.exists() and any(profile.iterdir())
+        checks.append(("Profil du navigateur (connexion Gemini/ChatGPT)", "OK" if logged else "ATTENTION",
+                       f"{profile}" + ("" if logged else " — vide : lancez « python -m video_ocr login »")))
     llm = _cached_hf_file(cfg.cache_dir, cfg.translation.llm_repo, cfg.translation.llm_file)
-    needed = cfg.translation.engine == "llm"
-    checks.append((f"Modèle LLM {cfg.translation.llm_file}", "OK" if llm else ("ÉCHEC" if needed else "ATTENTION"),
-                   str(llm) if llm else "absent — lancez scripts/download_models.py"))
+    needed = cfg.translation.engine == "llm"  # sinon : modèle de secours facultatif du moteur « browser »
+    checks.append((f"Modèle LLM local {cfg.translation.llm_file}", "OK" if llm else ("ÉCHEC" if needed else "ATTENTION"),
+                   str(llm) if llm else "absent" + (" — lancez scripts/download_models.py" if needed else " (facultatif : repli local)")))
     ct2 = ct2_model_path(cfg.cache_dir, cfg.translation.nllb_model)
     needed = cfg.translation.engine == "nllb"
     checks.append(("Modèle NLLB (CTranslate2 int8)", "OK" if (ct2 / "model.bin").exists() else ("ÉCHEC" if needed else "ATTENTION"),

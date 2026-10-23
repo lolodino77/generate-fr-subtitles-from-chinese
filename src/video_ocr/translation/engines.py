@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Protocol
 
@@ -182,7 +183,7 @@ class LlmEngine:
         path = hf_hub_download(cfg.llm_repo, cfg.llm_file, cache_dir=hf_cache(cache_dir))
         threads = cfg.device_threads or max(1, (os.cpu_count() or 4) // 2)
         self._llm = Llama(model_path=path, n_ctx=2048, n_threads=threads, verbose=False, seed=0)
-        self.name = f"llm:{cfg.llm_file}:v3"
+        self.name = f"llm:{cfg.llm_file}:v4"
 
     def _complete(self, user: str) -> str:
         out = self._llm.create_chat_completion(
@@ -199,7 +200,13 @@ class LlmEngine:
         )
         raw = str(out["choices"][0]["message"]["content"]).split("</think>")[-1].strip()
         line = next((ln for ln in raw.splitlines() if "=>" in ln), "")
-        return clean_llm_output(line.split("=>", 1)[1]) if line else ""
+        if not line:
+            return ""
+        english, french = (clean_llm_output(part).rstrip(".").strip() for part in line.split("=>", 1))
+        # Le « français » recopie l'anglais (ex. 鱼胶 -> « gelatin ») : repli sur la traduction normale
+        if not french or french.lower() == english.lower():
+            return ""
+        return french
 
     def translate_with_context(self, text: str, before: list[str], after: list[str]) -> str:
         if count_cjk(text) <= SHORT_TEXT_CJK and len(text) <= SHORT_TEXT_CJK + 1:
@@ -229,6 +236,16 @@ def create_engine(cfg: TranslationConfig, cache_dir: str | Path, offline: bool =
     """Instancie le moteur ; ``None`` pour « none » (pas de traduction)."""
     if cfg.engine == "none":
         return None
+    if cfg.engine == "browser":
+        from video_ocr.translation.browser_llm import BrowserTranslator
+
+        def local_fallback() -> TranslationEngine | None:
+            """Moteur local de secours, créé seulement si le navigateur échoue (modèle absent : pas de repli)."""
+            if cfg.browser_fallback in ("", "none", "browser"):
+                return None
+            return create_engine(replace(cfg, engine=cfg.browser_fallback), cache_dir, offline=True)
+
+        return BrowserTranslator(cfg, cache_dir, fallback_factory=local_fallback)
     if cfg.engine == "llm":
         return LlmEngine(cfg, cache_dir, offline)
     if cfg.engine == "nllb":

@@ -50,10 +50,19 @@ class OcrConfig:
     min_cjk_ratio: float = 0.5  # part minimale de caractères chinois pour qu'une ligne soit « chinoise »
     roi: list[float] | None = None  # [x0, y0, x1, y1] en fraction de l'image, None = image entière (ou zone auto)
     auto_roi: bool = True  # sans ROI manuelle : premier passage rapide puis OCR limité à la bande des sous-titres
+    # Écart anticipé des vidéos sans sous-titres incrustés (vlogs : seules des enseignes passent à l'image),
+    # décidé sur l'échantillon du premier passage, avant l'OCR complète (qui coûte des dizaines de minutes).
+    # Seuil placé dans l'écart mesuré sur 33 vidéos d'un seul compte : vidéos écartées à juste titre 0-10 %,
+    # vidéos à sous-titres 21-100 % (la plus basse : 21 %). Des vlogs à 15-24 % passent donc l'étape (voir TEST_REPORT §6.7).
+    skip_when_no_subtitles: bool = True  # False : toujours traiter la vidéo entière
+    no_subtitle_min_frames: int = 8  # échantillon minimal pour décider (sinon : traitement normal)
+    no_subtitle_clear_ratio: float = 0.15  # moins d'images « type sous-titre » : aucun sous-titre
     remove_static_text: bool = True  # retire les textes présents pendant presque toute la vidéo (titres, filigranes)
     static_presence_ratio: float = 0.85
     uncertain_score: float = 0.80  # en dessous : segment signalé incertain
-    zone_tolerance: float = 0.18  # écart vertical max (fraction de hauteur) par rapport à la zone dominante
+    zone_tolerance: float = 0.18  # écart vertical max (fraction de hauteur) par rapport à une zone de sous-titres
+    secondary_zone_ratio: float = 0.15  # zone secondaire retenue si son poids >= ce ratio de la zone principale
+    max_zones: int = 3  # nombre maximal de zones de sous-titres par vidéo
     center_tolerance: float = 0.15  # écart max du centre du bloc au centre de l'image (fraction de largeur) ; 0 = désactivé
     line_height_range: list[float] = field(default_factory=lambda: [0.6, 1.6])  # hauteur de ligne / hauteur typique des sous-titres
     block_score_drop: float = 0.3  # ligne d'un bloc écartée si son score < meilleur score du bloc - cette valeur
@@ -67,6 +76,8 @@ class SegmentConfig:
     max_gap_s: float = 0.75  # trou toléré (OCR manqué) à l'intérieur d'un même segment
     min_duration_s: float = 0.4  # durée minimale d'affichage d'un segment exporté
     merge_glitch_max_obs: int = 1  # segments d'une seule observation très proches d'un voisin -> fusion
+    single_char_min_s: float = 0.2  # segment d'un seul caractère plus bref : artefact de transition, écarté
+    recurring_single_char: int = 3  # même caractère au même endroit dans >= N segments : objet de la scène (0 = désactivé)
     # Vidéo « sans sous-titres probables » (vlog : seules des enseignes passent à l'image) : au moins
     # ``no_subtitle_min_segments`` segments, durée médiane < ``no_subtitle_median_s`` (texte de scène qui
     # défile) et part de segments signalés >= ``no_subtitle_flagged_ratio``.
@@ -78,15 +89,24 @@ class SegmentConfig:
 
 @dataclass
 class TranslationConfig:
-    """Traduction locale."""
+    """Traduction : LLM en ligne gratuit via navigateur (défaut) ou moteurs locaux."""
 
-    engine: str = "llm"  # "llm" (défaut, Qwen3 via llama.cpp), "nllb", "argos", "none"
+    engine: str = "browser"  # "browser" (Gemini/ChatGPT dans Chrome), "llm" (Qwen3 local), "nllb", "argos", "none"
+    browser_sites: list[str] = field(default_factory=lambda: ["gemini", "gpt"])  # ordre d'essai
+    browser_profile: str = ""  # profil Chrome (cookies de connexion) ; "" = <cache_dir>/browser_profile, hors dépôt
+    browser_channel: str = "chrome"  # "chrome", "msedge" ou "" (Chromium de Playwright, à installer)
+    browser_headless: bool = False  # False : fenêtre visible (connexion, captcha) ; ne pas la fermer pendant le lot
+    browser_chunk_size: int = 40  # sous-titres par requête
+    browser_timeout_s: int = 300  # attente maximale d'une réponse
+    browser_pause_s: float = 4.0  # pause entre deux requêtes
+    browser_fallback: str = "llm"  # moteur local de secours si le navigateur échoue ("none" : aucun)
     nllb_model: str = "facebook/nllb-200-distilled-600M"
     beam_size: int = 4
     normalize_to: str = "simplified"  # texte envoyé au traducteur : "simplified" ou "raw"
     device_threads: int = 0  # 0 = automatique
     llm_repo: str = "Qwen/Qwen3-4B-GGUF"  # moteur « llm » (llama.cpp) : dépôt Hugging Face du modèle GGUF
     llm_file: str = "Qwen3-4B-Q4_K_M.gguf"
+    glossary_path: str = "config/glossary.yaml"  # glossaire local prioritaire (relatif à la racine du projet), "" = aucun
     llm_context_segments: int = 2  # nombre de sous-titres voisins fournis comme contexte au LLM
 
 

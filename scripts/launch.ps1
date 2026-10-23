@@ -11,6 +11,8 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 $env:HF_HUB_OFFLINE = "1"          # aucun accès réseau nécessaire après installation
+# Code du projet trouvé depuis ce dossier, même si le paquet installé pointe ailleurs (projet déplacé, autre PC)
+$env:PYTHONPATH = (Join-Path $Root "src") + $(if ($env:PYTHONPATH) { ";" + $env:PYTHONPATH } else { "" })
 $env:STREAMLIT_BROWSER_GATHER_USAGE_STATS = "false"
 $headlessArg = if ($Headless) { "true" } else { "false" }
 conda run --no-capture-output -n video_ocr python -m streamlit run src\video_ocr\ui\app.py `

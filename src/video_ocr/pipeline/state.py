@@ -56,14 +56,37 @@ def file_fingerprint(path: str | Path, full_limit: int = 512 * 1024 * 1024) -> s
     return h.hexdigest()
 
 
+# Réglages qui ne changent pas le contenu produit par l'étape : ils décident seulement si la vidéo est traitée
+# (sonde). Les exclure évite de recalculer des vidéos déjà bien traitées quand on ajuste la sonde.
+HASH_EXCLUDED = {"ocr": {"skip_when_no_subtitles", "no_subtitle_min_frames", "no_subtitle_clear_ratio"}}
+
+
+def _canonical(value: Any) -> Any:
+    """Forme canonique pour l'empreinte : 8 et 8.0 donnent la même empreinte."""
+    if isinstance(value, dict):
+        return {k: _canonical(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical(v) for v in value]
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
 def step_hashes(cfg: AppConfig) -> dict[str, str]:
     """Empreinte cumulative de configuration pour chaque étape."""
-    data = cfg.to_dict()
+    data = _canonical(cfg.to_dict())
+    for section, keys in HASH_EXCLUDED.items():
+        data[section] = {k: v for k, v in data[section].items() if k not in keys}
     hashes: dict[str, str] = {}
     acc: dict[str, Any] = {}
     for step in STEPS:
         for section in STEP_SECTIONS[step]:
             acc[section] = data[section]
+        if step == "translation":  # le contenu du glossaire influence la traduction
+            from video_ocr.translation.translator import glossary_path
+
+            gp = glossary_path(cfg.translation)
+            acc["glossary_sha"] = hashlib.sha256(gp.read_bytes()).hexdigest() if gp else ""
         hashes[step] = hashlib.sha256(json.dumps(acc, sort_keys=True).encode()).hexdigest()[:16]
     return hashes
 
@@ -79,6 +102,8 @@ class VideoState:
     timings: dict[str, float] = field(default_factory=dict)
     updated: str = ""
     config: dict[str, Any] = field(default_factory=dict)
+    no_subtitles: bool = False  # écartée d'après la sonde : pas de sous-titres incrustés, vidéo non traitée
+    probe: dict[str, Any] = field(default_factory=dict)  # indicateurs de la sonde (diagnostic)
 
     def save(self, path: Path) -> None:
         self.updated = datetime.now().isoformat(timespec="seconds")

@@ -129,3 +129,16 @@ def test_roi_restricts_ocr(synthetic_video: Path, tmp_path: Path, cfg: AppConfig
     res = process_video(synthetic_video, tmp_path, cfg, engines(cfg, ocr_engine))
     payload = json.loads(((tmp_path / res.output_dir) / f"{synthetic_video.stem}.segments.json").read_text(encoding="utf-8"))
     assert all(similarity(s["text_raw"], "這個問題很難解決") < 0.5 for s in payload["segments"])
+
+
+def test_probe_settings_and_number_type_do_not_change_step_hashes() -> None:
+    """Ajuster la sonde ou écrire 8 au lieu de 8.0 ne doit pas rendre périmés des résultats déjà produits."""
+    from video_ocr.config import AppConfig
+    from video_ocr.pipeline.state import step_hashes
+
+    a, b = AppConfig(), AppConfig()
+    b.ocr.no_subtitle_clear_ratio, b.ocr.skip_when_no_subtitles = 0.3, False
+    b.sampling.dense_fps = 8  # int au lieu de 8.0
+    assert step_hashes(a) == step_hashes(b)
+    b.ocr.min_score = 0.6  # un vrai réglage d'OCR, lui, invalide
+    assert step_hashes(a)["ocr"] != step_hashes(b)["ocr"]

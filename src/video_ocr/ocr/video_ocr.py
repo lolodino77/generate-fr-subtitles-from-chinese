@@ -11,6 +11,7 @@ import numpy as np
 
 from video_ocr.config import AppConfig
 from video_ocr.models import FrameObservation, TextBox, TextLine, VideoInfo
+from video_ocr.ocr.analysis import SampleIndicators, likely_no_subtitles, sample_indicators
 from video_ocr.ocr.engines import OcrEngine
 from video_ocr.ocr.lines import boxes_to_lines, union_bbox
 from video_ocr.ocr.text_utils import similarity
@@ -116,30 +117,52 @@ def _unchanged(prev: np.ndarray, cur: np.ndarray, lines: list[TextLine], scale: 
     return float(np.mean(np.abs(region_prev - region_cur))) <= threshold
 
 
-def detect_subtitle_band(
-    info: VideoInfo, cfg: AppConfig, engine: OcrEngine, geometry: FrameGeometry, max_frames: int = 20
-) -> list[float] | None:
-    """Premier passage rapide : repère la zone des sous-titres sur quelques images de toute la vidéo.
+@dataclass
+class SubtitleProbe:
+    """Résultat du premier passage rapide (échantillon d'images réparti sur toute la vidéo)."""
 
-    Renvoie une ROI [0, y0, 1, y1] (fractions) couvrant la ligne chinoise et les lignes voisines
-    (ex. thaï dessous), ou None si aucun sous-titre plausible n'est trouvé (OCR de l'image entière).
-    Limiter l'OCR à cette bande réduit fortement le coût sur les vidéos riches en texte de scène.
+    band: list[float] | None  # ROI [0, y0, 1, y1] des sous-titres, None = image entière
+    indicators: SampleIndicators
+    no_subtitles_reason: str = ""  # non vide : la vidéo n'a probablement pas de sous-titres incrustés
+
+
+class NoSubtitles(Exception):
+    """La vidéo n'a probablement pas de sous-titres incrustés : OCR complète inutile."""
+
+    def __init__(self, probe: SubtitleProbe) -> None:
+        super().__init__(probe.no_subtitles_reason)
+        self.probe = probe
+
+
+def probe_subtitles(
+    info: VideoInfo, cfg: AppConfig, engine: OcrEngine, geometry: FrameGeometry, max_frames: int = 20
+) -> SubtitleProbe:
+    """Premier passage rapide : OCR de ~20 images réparties sur toute la vidéo (image entière).
+
+    Fournit la bande des sous-titres (ROI [0, y0, 1, y1] couvrant la ligne chinoise et les lignes voisines,
+    ex. thaï dessous) et des indicateurs qui décident si la vidéo a des sous-titres incrustés. Limiter l'OCR
+    à la bande réduit fortement le coût ; écarter une vidéo sans sous-titres l'évite entièrement.
     """
-    from video_ocr.ocr.analysis import dominant_zone, find_static_lines
+    from video_ocr.ocr.analysis import dominant_zones, find_static_lines
 
     ocr = FrameOcr(engine, cfg, geometry, roi=[0.0, 0.0, 1.0, 1.0])
     fps = min(0.5, max_frames / max(info.duration, 1.0))
     sample = [ocr(frame, t) for t, frame in iter_frames(info, fps, geometry, cfg.ffmpeg_path)][:max_frames + 1]
+    indicators = sample_indicators(sample, info.width, info.height, cfg.ocr)
+    reason = likely_no_subtitles(indicators, cfg.ocr) if cfg.ocr.skip_when_no_subtitles else ""
     static, _ = find_static_lines(sample, cfg.ocr) if len(sample) >= 6 else (set(), [])
-    zone, line_height = dominant_zone(sample, info.height, static, info.width, cfg.ocr.center_tolerance)
-    if zone is None or not line_height:
-        return None
+    zones, line_height = dominant_zones(
+        sample, info.height, static, info.width, cfg.ocr.center_tolerance, cfg.ocr.secondary_zone_ratio, cfg.ocr.max_zones
+    )
+    if not zones or not line_height:
+        return SubtitleProbe(None, indicators, reason)
     lh = line_height / info.height
-    y0, y1 = max(0.0, zone - 2.5 * lh), min(1.0, zone + 5.0 * lh)
+    # Bande englobant toutes les zones (sous-titres placés à plusieurs hauteurs dans une même vidéo)
+    y0, y1 = max(0.0, min(zones) - 2.5 * lh), min(1.0, max(zones) + 5.0 * lh)
     if y1 - y0 < 0.2:  # bande minimale pour tolérer de petits déplacements des sous-titres
         mid = (y0 + y1) / 2
         y0, y1 = max(0.0, mid - 0.1), min(1.0, mid + 0.1)
-    return [0.0, round(y0, 3), 1.0, round(y1, 3)]
+    return SubtitleProbe([0.0, round(y0, 3), 1.0, round(y1, 3)], indicators, reason)
 
 
 def run_video_ocr(
@@ -159,8 +182,12 @@ def run_video_ocr(
     if stats_roi is None and cfg.ocr.auto_roi:
         if progress is not None:
             progress(0.0, "Détection de la zone des sous-titres")
-        stats_roi = detect_subtitle_band(info, cfg, engine, geometry)
-        log.info("Zone d'OCR automatique : %s", stats_roi or "image entière")
+        probe = probe_subtitles(info, cfg, engine, geometry)
+        log.info("Sonde de %d images : %s ; zone d'OCR automatique : %s", probe.indicators.frames,
+                 probe.indicators.to_dict(), probe.band or "image entière")
+        if probe.no_subtitles_reason:
+            raise NoSubtitles(probe)
+        stats_roi = probe.band
     ocr = FrameOcr(engine, cfg, geometry, roi=stats_roi)
     dense_fps = max(sc.dense_fps, 1.0 / sc.ocr_interval_s)
     step = max(1, int(round(sc.ocr_interval_s * dense_fps)))
@@ -174,6 +201,19 @@ def run_video_ocr(
     thr = cfg.segments.similarity_threshold
     max_refine_calls = max(1, int(np.ceil(np.log2(step + 1)))) * 2
 
+    def same_subtitle(a: FrameObservation, b: FrameObservation) -> bool:
+        """Comparaison limitée aux lignes centrées : le texte de scène décentré qui défile (enseignes)
+        ne déclenche pas d'affinage coûteux. Les observations conservent toutes les lignes."""
+        tol = cfg.ocr.center_tolerance
+        if tol <= 0:
+            return same_text(a, b, thr)
+        w = info.width
+
+        def view(o: FrameObservation) -> FrameObservation:
+            return FrameObservation(o.t, [ln for ln in o.lines if abs((ln.bbox[0] + ln.bbox[2]) / 2 - w / 2) <= tol * w])
+
+        return same_text(view(a), view(b), thr)
+
     def refine(frames: list[tuple[float, np.ndarray]], lo: FrameObservation, hi: FrameObservation, budget: list[int]) -> None:
         """Bissection entre deux observations dont le texte diffère (frames = images strictement entre les deux)."""
         if not frames or budget[0] <= 0:
@@ -185,9 +225,9 @@ def run_video_ocr(
         budget[0] -= 1
         stats.refined += 1
         observations.append(obs_mid)
-        if same_text(lo, obs_mid, thr):
+        if same_subtitle(lo, obs_mid):
             refine(frames[mid + 1:], obs_mid, hi, budget)
-        elif same_text(obs_mid, hi, thr):
+        elif same_subtitle(obs_mid, hi):
             refine(frames[:mid], lo, obs_mid, budget)
         else:  # état intermédiaire (ex. phrase courte) : affiner des deux côtés
             refine(frames[:mid], lo, obs_mid, budget)
@@ -222,7 +262,7 @@ def run_video_ocr(
             else:
                 obs = ocr(frame, t)
                 last_gray = gray
-            if sc.refine_boundaries and last_obs is not None and not same_text(last_obs, obs, thr):
+            if sc.refine_boundaries and last_obs is not None and not same_subtitle(last_obs, obs):
                 between = [item for item in buffer[:-1] if last_obs.t < item[0] < t]
                 refine(between, last_obs, obs, [max_refine_calls])
             observations.append(obs)

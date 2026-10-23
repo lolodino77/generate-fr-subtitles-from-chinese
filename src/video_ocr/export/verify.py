@@ -89,6 +89,10 @@ def verify_output_dir(out_dir: Path, ffmpeg_path: str = "") -> VerifyResult:
         res.check("source inchangée", file_fingerprint(src) == state.fingerprint, "SHA-256 identique à celui mesuré avant traitement")
     else:
         res.check("source inchangée", False, f"source introuvable : {src}")
+    if state.no_subtitles and not out.exists():  # écartée par la sonde : aucune vidéo n'est censée exister
+        res.check("vidéo non produite", not out.exists(), "aucune vidéo exportée, comme prévu (aucun sous-titre)")
+        res.check("rapport", (out_dir / f"{stem}.rapport.md").exists(), "rapport expliquant la décision présent")
+        return res
     if not out.exists():
         res.check("vidéo exportée", False, "absente")
         return res

@@ -61,8 +61,9 @@ def sidebar_settings(base: AppConfig) -> AppConfig:
             cfg.ocr.roi = None
         cfg.ocr.remove_static_text = st.checkbox("Ignorer les textes fixes (titre, filigrane)", cfg.ocr.remove_static_text)
     with sb.expander("Traduction"):
-        engines = ["llm", "nllb", "argos", "none"]
-        labels = {"llm": "Qwen3-4B, LLM local (recommandé, plus lent)", "nllb": "NLLB-200 (rapide)",
+        engines = ["browser", "llm", "nllb", "argos", "none"]
+        labels = {"browser": "LLM en ligne gratuit via Chrome (Gemini, ChatGPT) — recommandé",
+                  "llm": "Qwen3-4B, LLM local (hors ligne, plus lent)", "nllb": "NLLB-200 (rapide)",
                   "argos": "Argos Translate (léger)", "none": "Aucune traduction"}
         cfg.translation.engine = st.selectbox("Moteur local", engines, engines.index(cfg.translation.engine), format_func=labels.get)
     with sb.expander("Rendu du français", expanded=True):

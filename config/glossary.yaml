@@ -1,0 +1,70 @@
+# Glossaire local chinois -> français, prioritaire sur le moteur de traduction.
+#
+# Utile pour les ensembles fermés que les petits modèles locaux traduisent mal (termes de parenté)
+# ou pour imposer une traduction. Clés en chinois SIMPLIFIÉ (le texte OCR est converti avant la
+# recherche), comparées sans ponctuation ni espaces. Ajoutez librement vos propres entrées.
+#
+# Termes de parenté : le français n'a souvent qu'un mot (« oncle », « tante ») là où le chinois
+# précise la branche familiale ; la précision est donnée entre parenthèses.
+
+# Grands-parents
+爷爷: grand-père (paternel)
+奶奶: grand-mère (paternelle)
+外公: grand-père (maternel)
+外婆: grand-mère (maternelle)
+
+# Côté du père
+伯伯: oncle (frère aîné du père)
+伯父: oncle (frère aîné du père)
+伯母: tante (épouse du frère aîné du père)
+叔叔: oncle (frère cadet du père)
+婶婶: tante (épouse du frère cadet du père)
+大姑: tante (sœur aînée du père)
+小姑: tante (sœur cadette du père)
+姑姑: tante (sœur du père)
+姑丈: oncle (mari de la sœur du père)
+大姑丈: oncle (mari de la sœur aînée du père)
+小姑丈: oncle (mari de la sœur cadette du père)
+
+# Côté de la mère
+舅舅: oncle (frère de la mère)
+大舅: oncle (frère aîné de la mère)
+小舅: oncle (frère cadet de la mère)
+舅妈: tante (épouse du frère de la mère)
+舅母: tante (épouse du frère de la mère)
+大舅母: tante (épouse du frère aîné de la mère)
+小舅母: tante (épouse du frère cadet de la mère)
+姨妈: tante (sœur de la mère)
+大姨: tante (sœur aînée de la mère)
+小姨: tante (sœur cadette de la mère)
+姨丈: oncle (mari de la sœur de la mère)
+大姨丈: oncle (mari de la sœur aînée de la mère)
+小姨丈: oncle (mari de la sœur cadette de la mère)
+
+# Belle-famille
+儿媳妇: belle-fille (épouse du fils)
+儿媳: belle-fille (épouse du fils)
+女婿: gendre
+家公: beau-père (père du mari)
+家婆: belle-mère (mère du mari)
+公公: beau-père (père du mari)
+婆婆: belle-mère (mère du mari)
+岳父: beau-père (père de l'épouse)
+岳母: belle-mère (mère de l'épouse)
+姐夫: beau-frère (mari de la sœur aînée)
+妹夫: beau-frère (mari de la sœur cadette)
+妹婿: beau-frère (mari de la sœur cadette)
+嫂子: belle-sœur (épouse du frère aîné)
+阿嫂: belle-sœur (épouse du frère aîné)
+弟媳: belle-sœur (épouse du frère cadet)
+亲家: belle-famille (parents du conjoint de son enfant)
+亲家公: père du conjoint de son enfant
+亲家母: mère du conjoint de son enfant
+新郎: marié
+新娘: mariée
+
+# Descendants
+内孙: petit-enfant (enfant du fils)
+外孙: petit-enfant (enfant de la fille)
+孙子: petit-fils
+孙女: petite-fille

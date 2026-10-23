@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from video_ocr.config import AppConfig
 from video_ocr.models import FrameObservation, Segment
 from video_ocr.ocr.lines import envelope_bbox, median_bbox
-from video_ocr.ocr.text_utils import normalize_text, similarity, to_simplified
+from video_ocr.ocr.text_utils import count_cjk, normalize_text, similarity, to_simplified
 
 log = logging.getLogger(__name__)
 
@@ -114,6 +114,9 @@ def build_segments(observations: list[FrameObservation], duration: float, cfg: A
             timing_uncertainty_s=round(unc, 3),
         )
         segments.append(seg)
+    segments = drop_single_char_artifacts(segments, sc.single_char_min_s, sc.recurring_single_char)
+    for i, seg in enumerate(segments, start=1):
+        seg.index = i
     _fix_timing(segments, duration, sc.min_duration_s)
     _flag(segments, cfg)
     log.info("%d segments construits à partir de %d observations", len(segments), len(observations))
@@ -133,6 +136,39 @@ def looks_without_subtitles(segments: list[Segment], cfg: AppConfig) -> bool:
     median = (durations[(len(durations) - 1) // 2] + durations[len(durations) // 2]) / 2
     flagged = sum(1 for s in segments if s.flags) / len(segments)
     return median < sc.no_subtitle_median_s and flagged >= sc.no_subtitle_flagged_ratio
+
+
+def _iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
+    inter_w = max(0, min(a[2], b[2]) - max(a[0], b[0]))
+    inter_h = max(0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = inter_w * inter_h
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def drop_single_char_artifacts(segments: list[Segment], min_s: float, recurring: int) -> list[Segment]:
+    """Écarte les « sous-titres » d'un seul caractère qui sont des artefacts (cas réels) :
+
+    - fragment très bref (< ``min_s`` avant allongement) : image de transition lue comme un caractère ;
+    - objet de la scène : le même caractère au même endroit dans au moins ``recurring`` segments
+      distincts (ex. un boîtier carré lu « 口 » chaque fois qu'aucun sous-titre ne le recouvre).
+    Les sous-titres de plusieurs caractères ne sont jamais concernés.
+    """
+    single = [s for s in segments if count_cjk(s.text_raw) <= 1]
+    drop: set[int] = set()
+    for seg in single:
+        if seg.end - seg.start < min_s:
+            drop.add(id(seg))
+    if recurring > 0:
+        for seg in single:
+            same = [o for o in single if o.text_raw == seg.text_raw and o.bbox and seg.bbox and _iou(o.bbox, seg.bbox) > 0.7]
+            if len(same) >= recurring:
+                drop.update(id(o) for o in same)
+    kept = [s for s in segments if id(s) not in drop]
+    if len(kept) < len(segments):
+        log.info("%d artefact(s) d'un seul caractère écarté(s) : %s", len(segments) - len(kept),
+                 sorted({s.text_raw for s in segments if id(s) in drop}))
+    return kept
 
 
 def _fix_timing(segments: list[Segment], duration: float, min_duration: float) -> None:

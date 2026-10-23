@@ -256,3 +256,6 @@ data/test_videos/
 *.safetensors
 *.bin
 *.sqlite
+
+# Profil du navigateur de traduction (cookies de connexion) : ne jamais versionner
+browser_profile/
